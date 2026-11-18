@@ -257,6 +257,9 @@ textarea { width: 100%; margin-top: 10px; min-height: 92px; border: 1.5px solid 
 .dock .meter i { display: block; height: 100%; background: var(--bk); border-radius: 3px; }
 .btn { border: 0; border-radius: 12px; min-height: 46px; padding: 0 20px; background: var(--bk); color: var(--bk-ink); font-weight: 900; font-size: 15.5px; cursor: pointer; white-space: nowrap; }
 .btn.ghost { background: var(--soft); color: var(--ink); border: 1px solid var(--line); }
+.dock .rtg { width: 78px; padding: 0; flex: none; background: var(--soft); color: var(--ink); border: 1px solid var(--line); }
+.dock .rtg.go { background: var(--bk); color: var(--bk-ink); border-color: var(--bk); }
+.dock .rx { width: 38px; height: 38px; flex: none; border-radius: 50%; border: 1px solid var(--line); background: var(--soft); color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer; margin-left: -4px; }
 .btn.warn { background: var(--bad); color: #fff; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
 .rs b.who { display: inline-block; min-width: 1.6em; color: var(--bk); }
@@ -423,12 +426,12 @@ function startApp(DATA) {
     app.innerHTML = `<nav class="jump">${b.lessons.map(l => `<a href="#" data-jump="L${l.no}">${l.nav || l.no + '과'}</a>`).join('')}</nav><div class="rc"><button class="tg${ko ? ' on' : ''}" data-rko="1">해석 함께 보기</button>${SND ? `<button class="tg" data-rate="1">속도 · ${(RATES[S.rate || 0] || RATES[0])[1]}</button>` : ''}</div><p class="rn">${SND ? '스피커가 붙은 문장을 누르면 소리로 듣고 ' : '문장을 누르면 '}해석을 볼 수 있어요.${SND ? '' : ' 소리는 크롬이나 사파리로 열면 들을 수 있어요.'}</p>${body}`;
     if (RA && RA.b === b && RA.all) pauseRead(); else { RA = null; dock.hidden = true; }
   }
-  function readDock(s, mode) {                     // play: 전체 듣기 중 · pause: 멈춤 · one: 한 문장 · done: 끝
+  function readDock(s, mode) {                     // play·one: 듣는 중 · pause: 멈춘 뒤 · done: 한 문장을 다 들은 뒤
     dock.hidden = false;
-    const btn = mode === 'play' ? `<button class="btn ghost" data-act="rpause">일시정지</button>`
-      : mode === 'pause' ? `<button class="btn" data-act="rgo">계속</button><button class="btn ghost" data-act="rstop">닫기</button>`
-      : `<button class="btn ghost" data-act="rstop">${mode === 'one' ? '멈춤' : '닫기'}</button>`;
-    dock.firstElementChild.innerHTML = `<div class="pg tr"><b>${s.no}</b>${s.ko}</div>${btn}`;
+    const tg = mode === 'pause' ? `<button class="btn rtg go" data-act="rgo">계속</button>`
+      : mode === 'done' ? `<button class="btn rtg" data-act="ragain">다시</button>`
+      : `<button class="btn rtg" data-act="rpause">멈춤</button>`;
+    dock.firstElementChild.innerHTML = `<div class="pg tr"><b>${s.no}</b>${s.ko}</div>${tg}<button class="rx" data-act="rstop" aria-label="닫기">✕</button>`;
   }
   function follow(el) {                           // 읽는 문장이 화면 밖으로 나갈 때만 따라 내려간다
     const r = el.getBoundingClientRect(), bar = document.querySelector('header.bar'), top = (bar ? bar.offsetHeight : 56) + 8;
@@ -446,7 +449,7 @@ function startApp(DATA) {
     readDock(s, all ? 'play' : 'one');
     if (all) follow(el);
     say(el.querySelector('.e').textContent,
-      () => { if (all) readAt(b, l, i + 1, true); else { RA = null; readDock(s, 'done'); } },
+      () => { if (all) readAt(b, l, i + 1, true); else { RA.paused = true; readDock(s, 'done'); } },
       s.a,
       () => pauseRead());
   }
@@ -455,7 +458,7 @@ function startApp(DATA) {
     hush(); RA.paused = true;
     const s = sentAt(RA.b, RA.l, RA.i); if (!s) return;
     const el = app.querySelector(`[data-rs="${RA.l}-${RA.i}"]`); if (el) el.classList.add('on');
-    readDock(s, RA.all ? 'pause' : 'done');
+    readDock(s, 'pause');
   }
 
   function vocab(b) {
@@ -551,6 +554,7 @@ function startApp(DATA) {
     const act = t.dataset.act;
     if (act === 'rpause') { pauseRead(); return; }
     if (act === 'rgo') { if (RA) readAt(RA.b, RA.l, RA.i, RA.all); return; }
+    if (act === 'ragain') { if (RA) readAt(RA.b, RA.l, RA.i, false); return; }
     if (act === 'rstop') { hush(); RA = null; app.querySelectorAll('.rs.on').forEach(e => e.classList.remove('on')); dock.hidden = true; return; }
     if (act === 'grade') { S.graded[b.id] = 1; save(); exam(b); window.scrollTo(0, 0); }
     else if (act === 'ask') { confirmReset = true; drawDock(b); }
