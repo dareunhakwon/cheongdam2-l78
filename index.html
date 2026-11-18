@@ -389,14 +389,28 @@ function startApp(DATA) {
   const aud = META.audio ? new Audio() : null;   // 하나를 돌려 쓴다 — 아이폰은 새로 만든 소리를 손가락 없이 못 튼다
   let sayTk = 0;
   const hush = () => { sayTk++; if (aud) aud.pause(); if (TTS) speechSynthesis.cancel(); };
-  function say(text, done, a) {
-    const tk = ++sayTk, fin = () => { if (tk === sayTk && done) done(); };
-    if (aud && a) { aud.pause(); aud.onended = aud.onerror = fin; aud.src = 'audio/' + a + '.mp3'; aud.playbackRate = (RATES[S.rate || 0] || RATES[0])[0] / 0.9; const p = aud.play(); if (p && p.catch) p.catch(fin); return; }
-    if (!TTS) return;
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text.replace(/~/g, ' ')); u.lang = 'en-US'; u.rate = (RATES[S.rate || 0] || RATES[0])[0];
-    u.onend = u.onerror = fin;
-    speechSynthesis.speak(u);
+  let RA = null;                                  // 지금 읽는 자리 { b, l, i, all, paused }
+  function say(text, done, a, stuck) {            // stuck: 소리를 틀 수 없을 때(손가락이 필요할 때) 부른다
+    const tk = ++sayTk; let over = false;
+    const fin = () => { if (over || tk !== sayTk) return; over = true; if (done) done(); };
+    const halt = () => { if (over || tk !== sayTk) return; over = true; if (stuck) stuck(); };
+    const tts = () => {
+      if (tk !== sayTk) return;
+      if (!TTS) return halt();
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text.replace(/~/g, ' ')); u.lang = 'en-US'; u.rate = (RATES[S.rate || 0] || RATES[0])[0];
+      u.onend = fin; u.onerror = e => { if (e && (e.error === 'interrupted' || e.error === 'canceled')) return; if (e && e.error === 'not-allowed') halt(); else fin(); };
+      speechSynthesis.speak(u);
+    };
+    if (aud && a) {
+      let alt = false; const toTts = () => { if (alt || over || tk !== sayTk) return; alt = true; tts(); };
+      aud.pause(); aud.onended = fin; aud.onerror = toTts;
+      aud.src = 'audio/' + a + '.mp3'; aud.playbackRate = (RATES[S.rate || 0] || RATES[0])[0] / 0.9;
+      const p = aud.play();
+      if (p && p.catch) p.catch(err => { const n = err && err.name; if (n === 'AbortError') return; if (n === 'NotAllowedError') halt(); else toTts(); });
+      return;
+    }
+    tts();
   }
 
   function reading(b) {
@@ -407,17 +421,41 @@ function startApp(DATA) {
       return `<div class="lh" id="L${l.no}"><i>${l.show || l.no}</i><div><b>${l.title}</b><span>${l.ko}</span></div><div class="lbt"><button class="tg kb${ko ? ' on' : ''}" data-rko="1" aria-pressed="${ko ? 'true' : 'false'}">해석 함께 보기</button>${SND ? `<button class="tg pl" data-play="${l.no}">${SPK}전체 듣기</button>` : ''}</div></div><div class="rd${ko ? ' ko' : ''}">${ps.map(p => `<p>${p.join('')}</p>`).join('')}</div>`;
     }).join('');
     app.innerHTML = `<nav class="jump">${b.lessons.map(l => `<a href="#" data-jump="L${l.no}">${l.nav || l.no + '과'}</a>`).join('')}</nav><div class="rc"><button class="tg${ko ? ' on' : ''}" data-rko="1">해석 함께 보기</button>${SND ? `<button class="tg" data-rate="1">속도 · ${(RATES[S.rate || 0] || RATES[0])[1]}</button>` : ''}</div><p class="rn">${SND ? '스피커가 붙은 문장을 누르면 소리로 듣고 ' : '문장을 누르면 '}해석을 볼 수 있어요.${SND ? '' : ' 소리는 크롬이나 사파리로 열면 들을 수 있어요.'}</p>${body}`;
-    dock.hidden = true;
+    if (RA && RA.b === b && RA.all) pauseRead(); else { RA = null; dock.hidden = true; }
   }
+  function readDock(s, mode) {                     // play: 전체 듣기 중 · pause: 멈춤 · one: 한 문장 · done: 끝
+    dock.hidden = false;
+    const btn = mode === 'play' ? `<button class="btn ghost" data-act="rpause">일시정지</button>`
+      : mode === 'pause' ? `<button class="btn" data-act="rgo">계속</button><button class="btn ghost" data-act="rstop">닫기</button>`
+      : `<button class="btn ghost" data-act="rstop">${mode === 'one' ? '멈춤' : '닫기'}</button>`;
+    dock.firstElementChild.innerHTML = `<div class="pg tr"><b>${s.no}</b>${s.ko}</div>${btn}`;
+  }
+  function follow(el) {                           // 읽는 문장이 화면 밖으로 나갈 때만 따라 내려간다
+    const r = el.getBoundingClientRect(), bar = document.querySelector('header.bar'), top = (bar ? bar.offsetHeight : 56) + 8;
+    const bottom = window.innerHeight - (dock.hidden ? 0 : dock.offsetHeight) - 8;
+    if (r.top >= top && r.bottom <= bottom) return;
+    window.scrollBy({ top: r.top - top - Math.max(0, (bottom - top) * 0.25), behavior: 'smooth' });
+  }
+  function sentAt(b, l, i) { const L = b.lessons.find(x => x.no === l); return L && L.sents[i]; }
   function readAt(b, l, i, all) {
-    const L = b.lessons.find(x => x.no === l), s = L && L.sents[i];
+    const s = sentAt(b, l, i);
     app.querySelectorAll('.rs.on').forEach(e => e.classList.remove('on'));
-    if (!s) { dock.hidden = true; return; }
+    if (!s) { RA = null; dock.hidden = true; return; }
+    RA = { b, l, i, all, paused: false };
     const el = app.querySelector(`[data-rs="${l}-${i}"]`); el.classList.add('on');
-    if (all) el.scrollIntoView({ block: 'center' });
-    const draw = on => { dock.hidden = false; dock.firstElementChild.innerHTML = `<div class="pg tr"><b>${s.no}</b>${s.ko}</div><button class="btn ghost" data-act="rstop">${on ? '멈춤' : '닫기'}</button>`; };
-    draw(SND);
-    say(el.querySelector('.e').textContent, () => { if (all) readAt(b, l, i + 1, true); else draw(false); }, s.a);
+    readDock(s, all ? 'play' : 'one');
+    if (all) follow(el);
+    say(el.querySelector('.e').textContent,
+      () => { if (all) readAt(b, l, i + 1, true); else { RA = null; readDock(s, 'done'); } },
+      s.a,
+      () => pauseRead());
+  }
+  function pauseRead() {
+    if (!RA) return;
+    hush(); RA.paused = true;
+    const s = sentAt(RA.b, RA.l, RA.i); if (!s) return;
+    const el = app.querySelector(`[data-rs="${RA.l}-${RA.i}"]`); if (el) el.classList.add('on');
+    readDock(s, RA.all ? 'pause' : 'done');
   }
 
   function vocab(b) {
@@ -479,7 +517,7 @@ function startApp(DATA) {
       if (d.rko) { hush(); const h = t.closest('.lh'), hid = h && h.id, t0 = h && h.getBoundingClientRect().top; S.rko = S.rko ? 0 : 1; save(); reading(b); window.scrollTo(0, y); if (hid) { const n = document.getElementById(hid); if (n) window.scrollBy(0, n.getBoundingClientRect().top - t0); } }
       else if (d.rate) { hush(); S.rate = ((S.rate || 0) + 1) % RATES.length; save(); reading(b); window.scrollTo(0, y); }
       else if (d.play) readAt(b, d.play, 0, true);
-      else if (d.rs) { const k = d.rs, c = k.lastIndexOf('-'); readAt(b, k.slice(0, c), +k.slice(c + 1), false); }
+      else if (d.rs) { const k = d.rs, c = k.lastIndexOf('-'); readAt(b, k.slice(0, c), +k.slice(c + 1), !!(RA && RA.all)); }
       return;
     }
     if (b && b.kind === 'vocab') {
@@ -511,7 +549,9 @@ function startApp(DATA) {
     const t = ev.target.closest('[data-act]'); if (!t) return;
     const b = book((location.hash || '#home').slice(1)); if (!b) return;
     const act = t.dataset.act;
-    if (act === 'rstop') { hush(); app.querySelectorAll('.rs.on').forEach(e => e.classList.remove('on')); dock.hidden = true; return; }
+    if (act === 'rpause') { pauseRead(); return; }
+    if (act === 'rgo') { if (RA) readAt(RA.b, RA.l, RA.i, RA.all); return; }
+    if (act === 'rstop') { hush(); RA = null; app.querySelectorAll('.rs.on').forEach(e => e.classList.remove('on')); dock.hidden = true; return; }
     if (act === 'grade') { S.graded[b.id] = 1; save(); exam(b); window.scrollTo(0, 0); }
     else if (act === 'ask') { confirmReset = true; drawDock(b); }
     else if (act === 'cancel') { confirmReset = false; drawDock(b); }
