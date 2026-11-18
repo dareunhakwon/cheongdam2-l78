@@ -160,6 +160,9 @@ table.t tr:first-child th, table.t th:first-child { background: var(--bk-soft); 
 .tg.on { background: var(--bk); color: var(--bk-ink); border-color: var(--bk); }
 .rn { margin: 0 0 4px; font-size: 13.5px; color: var(--muted); }
 .lh .pl { margin-left: auto; align-self: center; flex: none; }
+.lh .lbt { margin-left: auto; align-self: center; flex: none; display: flex; gap: 6px; }
+.lh .lbt .pl { margin-left: 0; }
+@media (max-width: 430px) { .lh .lbt { flex-direction: column; align-items: stretch; gap: 5px; } .lh .lbt .tg { justify-content: center; min-height: 32px; } }
 .rd { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; font-size: 17.5px; line-height: 1.95; }
 .rd p { margin: 0 0 10px; } .rd p:last-child { margin: 0; }
 .rs { cursor: pointer; border-radius: 5px; padding: 3px 0; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
@@ -401,7 +404,7 @@ function startApp(DATA) {
     const body = b.lessons.map(l => {
       const ps = [];
       l.sents.forEach((s, i) => { if (s.p || !ps.length) ps.push([]); ps[ps.length - 1].push(`<span class="rs" data-rs="${l.no}-${i}">${SND ? `<i class="sp">${SPK}</i>` : ''}<span class="e">${s.en}</span>${ko ? `<small>${s.ko}</small>` : ' '}</span>`); });
-      return `<div class="lh" id="L${l.no}"><i>${l.show || l.no}</i><div><b>${l.title}</b><span>${l.ko}</span></div>${SND ? `<button class="tg pl" data-play="${l.no}">${SPK}전체 듣기</button>` : ''}</div><div class="rd${ko ? ' ko' : ''}">${ps.map(p => `<p>${p.join('')}</p>`).join('')}</div>`;
+      return `<div class="lh" id="L${l.no}"><i>${l.show || l.no}</i><div><b>${l.title}</b><span>${l.ko}</span></div><div class="lbt"><button class="tg kb${ko ? ' on' : ''}" data-rko="1" aria-pressed="${ko ? 'true' : 'false'}">해석 함께 보기</button>${SND ? `<button class="tg pl" data-play="${l.no}">${SPK}전체 듣기</button>` : ''}</div></div><div class="rd${ko ? ' ko' : ''}">${ps.map(p => `<p>${p.join('')}</p>`).join('')}</div>`;
     }).join('');
     app.innerHTML = `<nav class="jump">${b.lessons.map(l => `<a href="#" data-jump="L${l.no}">${l.nav || l.no + '과'}</a>`).join('')}</nav><div class="rc"><button class="tg${ko ? ' on' : ''}" data-rko="1">해석 함께 보기</button>${SND ? `<button class="tg" data-rate="1">속도 · ${(RATES[S.rate || 0] || RATES[0])[1]}</button>` : ''}</div><p class="rn">${SND ? '스피커가 붙은 문장을 누르면 소리로 듣고 ' : '문장을 누르면 '}해석을 볼 수 있어요.${SND ? '' : ' 소리는 크롬이나 사파리로 열면 들을 수 있어요.'}</p>${body}`;
     dock.hidden = true;
@@ -473,7 +476,7 @@ function startApp(DATA) {
     if (t.dataset.allko) { const k = 'all-' + t.dataset.allko; S.ko[k] = S.ko[k] ? 0 : 1; S.show['r-' + t.dataset.allko] = 1; save(); const y = window.scrollY; grammar(G); window.scrollTo(0, y); return; }
     if (b && b.kind === 'read') {
       const y = window.scrollY, d = t.dataset;
-      if (d.rko) { hush(); S.rko = S.rko ? 0 : 1; save(); reading(b); window.scrollTo(0, y); }
+      if (d.rko) { hush(); const h = t.closest('.lh'), hid = h && h.id, t0 = h && h.getBoundingClientRect().top; S.rko = S.rko ? 0 : 1; save(); reading(b); window.scrollTo(0, y); if (hid) { const n = document.getElementById(hid); if (n) window.scrollBy(0, n.getBoundingClientRect().top - t0); } }
       else if (d.rate) { hush(); S.rate = ((S.rate || 0) + 1) % RATES.length; save(); reading(b); window.scrollTo(0, y); }
       else if (d.play) readAt(b, d.play, 0, true);
       else if (d.rs) { const k = d.rs, c = k.lastIndexOf('-'); readAt(b, k.slice(0, c), +k.slice(c + 1), false); }
